@@ -129,6 +129,25 @@ bool RadioReceiver::addServiceToDecode(ProgrammeHandlerInterface& handler,
     return playProgramme(handler, s, dumpFileName, false);
 }
 
+bool RadioReceiver::addPacketServiceToDecode(PacketDataHandlerInterface& handler,
+                const std::string& dumpFileName, const Service& s)
+{
+    const auto comps = ficHandler.fibProcessor.getComponents(s);
+    for (const auto& sc : comps) {
+        if (sc.transportMode() == TransportMode::PacketData) {
+            const auto& subch = ficHandler.fibProcessor.getSubchannel(sc);
+
+            if (subch.valid()) {
+                // Do not filter the data type, it's the user's responsibility
+                mscHandler.addPacketDataSubchannel(
+                        handler, sc.dataType(), dumpFileName, subch);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool RadioReceiver::removeServiceToDecode(const Service& s)
 {
     const auto comps = ficHandler.fibProcessor.getComponents(s);
@@ -158,7 +177,7 @@ bool RadioReceiver::playProgramme(ProgrammeHandlerInterface& handler,
 
                 if (sc.audioType() == AudioServiceComponentType::DAB ||
                     sc.audioType() == AudioServiceComponentType::DABPlus) {
-                    mscHandler.addSubchannel(
+                    mscHandler.addAudioSubchannel(
                             handler, sc.audioType(), dumpFileName, subch);
                     return true;
                 }

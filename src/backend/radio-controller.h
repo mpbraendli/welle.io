@@ -132,7 +132,7 @@ class RadioControllerInterface {
         virtual void onInputFailure(void) { };
 };
 
-/* A Programme Hander is associated to each tuned programme in the ensemble.
+/* A Programme Hander is associated to each tuned audio programme in the ensemble.
  */
 class ProgrammeHandlerInterface {
     public:
@@ -168,6 +168,15 @@ class ProgrammeHandlerInterface {
          * and effective X-PAD length.
          */
         virtual void onPADLengthError(size_t announced_xpad_len, size_t xpad_len) = 0;
+};
+
+/* Interface a handler receiving a Packet Data service must implement.
+ */
+class PacketDataHandlerInterface {
+    public:
+        /* New MSC Data Group is available. The content of the data group depends on the DSCTy of
+         * the tuned service. */
+        virtual void onMSCDataGroup(std::vector<uint8_t>&& mscdg) = 0;
 };
 
 enum class DeviceParam {

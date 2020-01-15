@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2018
+ *    Copyright (C) 2019
  *    Matthias P. Braendli (matthias.braendli@mpb.li)
  *
  *    Copyright (C) 2013
@@ -25,36 +25,20 @@
 #include <iostream>
 #include <vector>
 #include "dab-constants.h"
-#include "dab-audio.h"
+#include "subchannel-handler.h"
 #include "decoder_adapter.h"
 #include "eep-protection.h"
 #include "uep-protection.h"
 #include "profiling.h"
 
-//  As an experiment a version of the backend is created
-//  that will be running in a separate thread. Might be
-//  useful for multicore processors.
-//
-//  Interleaving is - for reasons of simplicity - done
-//  inline rather than through a special class-object
-//static
-//int8_t    interleaveDelays[] = {
-//       15, 7, 11, 3, 13, 5, 9, 1, 14, 6, 10, 2, 12, 4, 8, 0};
-//
-//
 //  fragmentsize == Length * CUSize
-DabAudio::DabAudio(
-        AudioServiceComponentType dabModus,
+SubchannelHandler::SubchannelHandler(
         int16_t fragmentSize,
         int16_t bitRate,
-        ProtectionSettings protection,
-        ProgrammeHandlerInterface& phi,
-        const std::string& dumpFileName) :
-    myProgrammeHandler(phi),
-    mscBuffer(64 * 32768),
-    dumpFileName(dumpFileName)
+        ProtectionSettings protection) :
+    DabVirtual(),
+    mscBuffer(64 * 32768)
 {
-    this->dabModus         = dabModus;
     this->fragmentSize     = fragmentSize;
     this->bitRate          = bitRate;
 
@@ -74,25 +58,25 @@ DabAudio::DabAudio(
         protectionHandler = make_unique<EEPProtection>(
                 bitRate, profile_is_eep_a, (int)protection.eepLevel);
     }
-
-    our_dabProcessor = make_unique<DecoderAdapter>(
-            myProgrammeHandler, bitRate, dabModus, dumpFileName);
-
-    running = true;
-    ourThread = std::thread(&DabAudio::run, this);
 }
 
-DabAudio::~DabAudio()
+void SubchannelHandler::start()
+{
+    running = true;
+    myThread = std::thread(&SubchannelHandler::run, this);
+}
+
+SubchannelHandler::~SubchannelHandler()
 {
     running = false;
 
-    if (ourThread.joinable()) {
+    if (myThread.joinable()) {
         mscDataAvailable.notify_all();
-        ourThread.join();
+        myThread.join();
     }
 }
 
-int32_t DabAudio::process(const softbit_t *v, int16_t cnt)
+int32_t SubchannelHandler::process(const softbit_t *v, int16_t cnt)
 {
     int32_t fr;
 
@@ -112,7 +96,7 @@ int32_t DabAudio::process(const softbit_t *v, int16_t cnt)
 
 const int16_t interleaveMap[] = {0,8,4,12,2,10,6,14,1,9,5,13,3,11,7,15};
 
-void DabAudio::run()
+void SubchannelHandler::run()
 {
     int16_t i;
     int16_t countforInterleaver = 0;
@@ -121,7 +105,7 @@ void DabAudio::run()
     std::vector<softbit_t> tempX(fragmentSize);
 
     while (running) {
-        std::unique_lock<std::mutex> lock(ourMutex);
+        std::unique_lock<std::mutex> lock(myMutex);
         while (running && mscBuffer.GetRingBufferReadAvailable() <= fragmentSize) {
             mscDataAvailable.wait(lock);
         }
@@ -155,11 +139,53 @@ void DabAudio::run()
         // and the inline energy dispersal
         energyDispersal.dedisperse(outV);
 
-        if (our_dabProcessor) {
-            PROFILE(DADecode);
-            our_dabProcessor->addtoFrame(outV.data());
-        }
+        PROFILE(DADecode);
+        addtoFrame(outV);
         PROFILE(DADone);
     }
 }
 
+DabAudio::DabAudio(AudioServiceComponentType dabModus,
+                  int16_t fragmentSize,
+                  int16_t bitRate,
+                  ProtectionSettings protection,
+                  ProgrammeHandlerInterface& phi,
+                  const std::string& dumpFileName) :
+    SubchannelHandler(fragmentSize, bitRate, protection),
+    myProgrammeHandler(phi)
+{
+    myProcessor = std::make_unique<DecoderAdapter>(
+            myProgrammeHandler, bitRate, dabModus, dumpFileName);
+
+    start();
+}
+
+void DabAudio::addtoFrame(const std::vector<uint8_t>& data)
+{
+    myProcessor->addtoFrame(data.data());
+}
+
+DabAudio::~DabAudio() {}
+
+DabPacketData::DabPacketData(
+        DataServiceComponentType dsctype,
+        int16_t fragmentSize,
+        int16_t bitRate,
+        ProtectionSettings protection,
+        PacketDataHandlerInterface& phdi,
+        const std::string& dumpFileName) :
+    SubchannelHandler(fragmentSize, bitRate, protection),
+    myPacketDataHandler(phdi)
+{
+    start();
+}
+
+void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
+{
+    std::clog << "Got " << data.size() << " bytes of data" << std::endl;
+
+#warning "Do packet parsing and hand over to phi"
+    // TODO myPacketDataHandler.onMSCDataGroup(std::vector<uint8_t>&& mscdg) = 0;
+}
+
+DabPacketData::~DabPacketData() {}

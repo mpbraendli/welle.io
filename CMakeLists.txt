@@ -112,7 +112,7 @@ include_directories(
 )
 
 set(backend_sources
-    src/backend/dab-audio.cpp
+    src/backend/subchannel-handler.cpp
     src/backend/decoder_adapter.cpp
     src/backend/dab_decoder.cpp
     src/backend/dabplus_decoder.cpp

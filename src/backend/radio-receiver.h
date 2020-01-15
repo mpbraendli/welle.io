@@ -73,6 +73,12 @@ class RadioReceiver {
         bool addServiceToDecode(ProgrammeHandlerInterface& handler,
                 const std::string& dumpFileName, const Service& s);
 
+        /* Start decoding the given packet data service. Returns true
+         * if a given packet data service was found.
+         */
+        bool addPacketServiceToDecode(PacketDataHandlerInterface& handler,
+                const std::string& dumpFileName, const Service& s);
+
         bool removeServiceToDecode(const Service& s);
 
         uint16_t getEnsembleId(void) const;
