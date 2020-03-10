@@ -238,6 +238,14 @@ class TestProgrammeHandler: public ProgrammeHandlerInterface {
         }
 };
 
+
+class TestPacketDataHandler : public PacketDataHandlerInterface {
+    public:
+        /* New MSC Data Group is available. The content of the data group depends on the DSCTy of
+         * the tuned service. */
+        virtual void onMSCDataGroup(std::vector<uint8_t>&& mscdg) override {}
+};
+
 Tests::Tests(std::unique_ptr<CVirtualInput>& interface, RadioReceiverOptions rro) :
     input_interface(interface),
     rro(rro) {}
@@ -369,6 +377,46 @@ void Tests::test_multipath(int test_id)
     fclose(fd);
 }
 
+void Tests::test_packet_data()
+{
+    cerr << "Setup packet data test " << test_id << endl;
+    TestRadioInterface ri;
+    TestPacketDataHandler tpdh;
+
+    RadioReceiver rx(ri, *input_interface.get(), rro);
+
+    rx.restart(false);
+
+    bool service_selected = false;
+    string dumpFileName = "";
+
+    while (not service_selected) {
+        this_thread::sleep_for(chrono::seconds(1));
+
+        for (const auto s : rx.getServiceList()) {
+
+            for (const auto sc : rx.getComponents(s)) {
+                if (sc.transportMode() == TransportMode::PacketData) {
+                    service_selected = rx.addPacketServiceToDecode(tpdh, dumpFileName, s);
+                    break;
+                }
+            }
+
+            if (service_selected) {
+                break;
+            }
+        }
+    }
+
+    cerr << "Service selected = " << service_selected << endl;
+
+    cerr << "Wait for completion" << endl;
+    auto& intf = dynamic_cast<CRAWFile&>(*input_interface);
+    while (not intf.endWasReached()) {
+        this_thread::sleep_for(chrono::milliseconds(120));
+    }
+}
+
 void Tests::run_test(int test_id)
 {
     rro.fftPlacementMethod = DEFAULT_FFT_PLACEMENT;
@@ -376,5 +424,6 @@ void Tests::run_test(int test_id)
     if (test_id == 0) test_with_noise();
     else if (test_id == 1 or test_id == 2) test_multipath(test_id);
     else if (test_id == 3) test_with_noise_iteration(0);
+    else if (test_id == 4) test_packet_data();
     else cerr << "Test " << test_id << " does not exist!" << endl;
 }
