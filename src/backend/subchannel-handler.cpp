@@ -182,7 +182,33 @@ DabPacketData::DabPacketData(
 
 void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
 {
-    std::clog << "Got " << data.size() << " bytes of data" << std::endl;
+    const uint8_t  length_indicator = getBits_2(data.data(), 0);
+    const uint8_t  continuity_ix    = getBits_2(data.data(), 2);
+    const bool     first            = getBits_1(data.data(), 4);
+    const bool     last             = getBits_1(data.data(), 5);
+    const uint16_t address          = getBits(data.data(), 6, 10);
+    const bool     command          = getBits_1(data.data(), 17);
+    const uint8_t  data_length      = getBits_7(data.data(), 18);
+
+    const uint8_t packet_length =
+        (length_indicator == 0b00) ? 24 :
+        (length_indicator == 0b01) ? 48 :
+        (length_indicator == 0b10) ? 72 : 96;
+
+    std::clog << "Packet " << data.size()/8 << ": " << (int)continuity_ix <<
+        (first ? " F " : " f ") << (last ? " L " : " l ") <<
+        " addr=" << (int)address <<
+        " datalen=" << (int)data_length <<
+        std::endl;
+
+    size_t l = 32;
+    if (l > data.size()) l = data.size();
+    std::stringstream ss;
+    ss << std::hex;
+    for (size_t i = 0; i < l; i++) {
+        ss << (int)data[i];
+    }
+    std::clog << ss.str() << std::endl;
 
 #warning "Do packet parsing and hand over to phi"
     // TODO myPacketDataHandler.onMSCDataGroup(std::vector<uint8_t>&& mscdg) = 0;

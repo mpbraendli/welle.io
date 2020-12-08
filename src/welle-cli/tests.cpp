@@ -243,7 +243,9 @@ class TestPacketDataHandler : public PacketDataHandlerInterface {
     public:
         /* New MSC Data Group is available. The content of the data group depends on the DSCTy of
          * the tuned service. */
-        virtual void onMSCDataGroup(std::vector<uint8_t>&& mscdg) override {}
+        virtual void onMSCDataGroup(std::vector<uint8_t>&& mscdg) override {
+            cout << "MSCDataGroup: " << mscdg.size() << endl;
+        }
 };
 
 Tests::Tests(std::unique_ptr<CVirtualInput>& interface, RadioReceiverOptions rro) :
@@ -379,7 +381,7 @@ void Tests::test_multipath(int test_id)
 
 void Tests::test_packet_data()
 {
-    cerr << "Setup packet data test " << test_id << endl;
+    cerr << "Setup packet data test" << endl;
     TestRadioInterface ri;
     TestPacketDataHandler tpdh;
 
