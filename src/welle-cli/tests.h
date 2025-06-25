@@ -45,6 +45,7 @@ class Tests {
         void test_with_noise();
         void test_with_noise_iteration(double stddev);
         void test_multipath(int test_id);
+        void test_packet_data();
 
         std::unique_ptr<CVirtualInput>& input_interface;
         RadioReceiverOptions rro;

@@ -52,7 +52,7 @@ DecoderAdapter::DecoderAdapter(ProgrammeHandlerInterface &mr, int16_t bitRate, A
     padDecoder.SetMOTAppType(12);
 }
 
-void DecoderAdapter::addtoFrame(uint8_t *v)
+void DecoderAdapter::addtoFrame(const uint8_t *v)
 {
     const size_t length = 24 * bitRate / 8;
     std::vector<uint8_t> data(length);

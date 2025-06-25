@@ -527,3 +527,21 @@ AudioServiceComponentType ServiceComponent::audioType() const
     }
 }
 
+DataServiceComponentType ServiceComponent::dataType() const
+{
+    if (DSCTy == 5) {
+        return DataServiceComponentType::TransparentDataChannel;
+    }
+    else if (DSCTy == 24) {
+        return DataServiceComponentType::MPEG2TS;
+    }
+    else if (DSCTy == 59) {
+        return DataServiceComponentType::IPDT;
+    }
+    else if (DSCTy == 60) {
+        return DataServiceComponentType::MOT;
+    }
+    else {
+        return DataServiceComponentType::Unknown;
+    }
+}

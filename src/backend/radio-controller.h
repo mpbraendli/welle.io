@@ -177,6 +177,15 @@ class ProgrammeHandlerInterface {
         virtual void onPADLengthError(size_t announced_xpad_len, size_t xpad_len) = 0;
 };
 
+/* Interface a handler receiving a Packet Data service must implement.
+ */
+class PacketDataHandlerInterface {
+    public:
+        /* New MSC Data Group is available. The content of the data group depends on the DSCTy of
+         * the tuned service. */
+        virtual void onMSCDataGroup(std::vector<uint8_t>&& mscdg) = 0;
+};
+
 enum class DeviceParam {
     BiasTee,
     SoapySDRAntenna,

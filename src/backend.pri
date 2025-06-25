@@ -91,7 +91,7 @@ INCLUDEPATH += \
     $$PWD/libs/fec
 
 HEADERS += \
-    $$PWD/backend/dab-audio.h \
+    $$PWD/backend/subchannel-handler.h \
     $$PWD/backend/dab_decoder.h \
     $$PWD/backend/dabplus_decoder.h \
     $$PWD/backend/subchannel_sink.h \
@@ -147,7 +147,7 @@ HEADERS += \
     $$PWD/input/rtl_tcp.h
 	
 SOURCES += \
-    $$PWD/backend/dab-audio.cpp \
+    $$PWD/backend/subchannel-handler.cpp \
     $$PWD/backend/dab_decoder.cpp \
     $$PWD/backend/dabplus_decoder.cpp \
     $$PWD/backend/charsets.cpp \

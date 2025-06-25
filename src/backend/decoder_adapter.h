@@ -46,7 +46,7 @@ class DecoderAdapter: public DabProcessor, public SubchannelSinkObserver, public
                      AudioServiceComponentType &dabModus,
                      const std::string& dumpFileName);
 
-        virtual void addtoFrame(uint8_t *v);
+        virtual void addtoFrame(const uint8_t *v);
 
         // SubchannelSinkObserver impl
         virtual void FormatChange(const AUDIO_SERVICE_FORMAT& /*format*/);

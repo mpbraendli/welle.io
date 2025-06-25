@@ -50,6 +50,7 @@ using DSPCOMPLEX = std::complex<DSPFLOAT>;
 using softbit_t = int8_t;
 
 enum class AudioServiceComponentType { DAB, DABPlus, Unknown };
+enum class DataServiceComponentType { TransparentDataChannel, MPEG2TS, MOT, IPDT, Unknown };
 
 enum class TransportMode { Audio, StreamData, FIDC, PacketData };
 
@@ -147,6 +148,7 @@ struct ServiceComponent {
 
     TransportMode transportMode(void) const;
     AudioServiceComponentType audioType(void) const;
+    DataServiceComponentType dataType(void) const;
 };
 
 enum class EEPProtectionProfile {

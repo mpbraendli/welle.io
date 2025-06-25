@@ -464,6 +464,7 @@ int16_t FIBProcessor::HandleFIG0Extension8(
         //           }
     }
     else {
+        /* bool MSCflag = */ getBits_1 (d, lOffset + 1);
         /* int16_t SubChId = */ getBits_6(d, lOffset + 4);
         lOffset += 8;
     }

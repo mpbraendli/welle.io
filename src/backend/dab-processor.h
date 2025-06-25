@@ -31,7 +31,7 @@
 class DabProcessor {
     public:
         virtual ~DabProcessor() = default;
-        virtual void addtoFrame(uint8_t *) = 0;
+        virtual void addtoFrame(const uint8_t *data) = 0;
 };
 
 #endif

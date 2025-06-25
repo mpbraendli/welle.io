@@ -1,5 +1,5 @@
 /*
- *    Copyright (C) 2018
+ *    Copyright (C) 2019
  *    Matthias P. Braendli (matthias.braendli@mpb.li)
  *
  *    Copyright (C) 2013
@@ -22,8 +22,7 @@
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  */
-#ifndef __DAB_AUDIO
-#define __DAB_AUDIO
+#pragma once
 
 #include "dab-virtual.h"
 #include <memory>
@@ -40,28 +39,26 @@
 class DabProcessor;
 class Protection;
 
-class DabAudio : public DabVirtual
+class SubchannelHandler : public DabVirtual
 {
     public:
-        DabAudio(AudioServiceComponentType dabModus,
+        SubchannelHandler(
                   int16_t fragmentSize,
                   int16_t bitRate,
-                  ProtectionSettings protection,
-                  ProgrammeHandlerInterface& phi,
-                  const std::string& dumpFileName);
-        virtual ~DabAudio(void);
-        DabAudio(const DabAudio&) = delete;
-        DabAudio& operator=(const DabAudio&) = delete;
+                  ProtectionSettings protection);
+        virtual ~SubchannelHandler(void);
+        SubchannelHandler(const SubchannelHandler&) = delete;
+        SubchannelHandler& operator=(const SubchannelHandler&) = delete;
 
         int32_t process(const softbit_t *v, int16_t cnt);
 
     protected:
-        ProgrammeHandlerInterface& myProgrammeHandler;
+        void start();
+        virtual void addtoFrame(const std::vector<uint8_t>& data) = 0;
 
     private:
-        void    run(void);
+        void run();
         std::atomic<bool> running;
-        AudioServiceComponentType dabModus;
         int16_t fragmentSize;
         int16_t bitRate;
         std::vector<uint8_t> outV;
@@ -69,15 +66,47 @@ class DabAudio : public DabVirtual
         EnergyDispersal energyDispersal;
 
         std::condition_variable  mscDataAvailable;
-        std::mutex               ourMutex;
-        std::thread              ourThread;
+        std::mutex               myMutex;
+        std::thread              myThread;
 
         std::unique_ptr<Protection> protectionHandler;
-        std::unique_ptr<DabProcessor> our_dabProcessor;
         RingBuffer<softbit_t> mscBuffer;
 
         const std::string dumpFileName;
 };
 
-#endif
+class DabAudio : public SubchannelHandler {
+    public:
+        DabAudio(AudioServiceComponentType dabModus,
+                  int16_t fragmentSize,
+                  int16_t bitRate,
+                  ProtectionSettings protection,
+                  ProgrammeHandlerInterface& phi,
+                  const std::string& dumpFileName);
+        virtual ~DabAudio();
 
+    protected:
+        virtual void addtoFrame(const std::vector<uint8_t>& data);
+
+    private:
+        std::unique_ptr<DabProcessor> myProcessor;
+        ProgrammeHandlerInterface& myProgrammeHandler;
+};
+
+class DabPacketData : public SubchannelHandler {
+    public:
+        DabPacketData(DataServiceComponentType dsctype,
+                  int16_t fragmentSize,
+                  int16_t bitRate,
+                  ProtectionSettings protection,
+                  PacketDataHandlerInterface& pdhi,
+                  const std::string& dumpFileName);
+        virtual ~DabPacketData();
+
+    protected:
+        virtual void addtoFrame(const std::vector<uint8_t>& data);
+
+    private:
+        std::unique_ptr<DabProcessor> myProcessor;
+        PacketDataHandlerInterface& myPacketDataHandler;
+};
