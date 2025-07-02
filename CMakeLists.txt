@@ -238,6 +238,7 @@ include_directories(
 )
 
 set(backend_sources
+    src/backend/packetmode_reedsolomon.cpp
     src/backend/subchannel-handler.cpp
     src/backend/decoder_adapter.cpp
     src/backend/dab_decoder.cpp

@@ -31,7 +31,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <cstdio>
+#include "packetmode_reedsolomon.h"
 #include "ringbuffer.h"
 #include "energy_dispersal.h"
 #include "radio-controller.h"
@@ -107,6 +107,7 @@ class DabPacketData : public SubchannelHandler {
         virtual void addtoFrame(const std::vector<uint8_t>& data);
 
     private:
+        packetmode::Packetmode_ReedSolomon myRS;
         std::unique_ptr<DabProcessor> myProcessor;
         PacketDataHandlerInterface& myPacketDataHandler;
 };
