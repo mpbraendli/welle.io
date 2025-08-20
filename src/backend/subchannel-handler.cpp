@@ -226,6 +226,8 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
     }
 
     if (packet_length == 24 && address == 1022) {
+        // FEC packets will always fail the CRC check, and can be ignored here.
+        // The input_and_decode will take care of them.
         /*
         uint8_t counter = getBits_4(data.data(), 2);
         std::clog << "Packet " << data.size()/8 << ": FEC " <<
@@ -244,24 +246,33 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
         }
     }
 
+    packetmode::Packet packet(data);
+    fprintf(stderr, "HEX %d", packet.address());
+    for (auto dat = packet.data().cbegin(); dat != packet.data().cend(); ++dat) {
+        fprintf(stderr, " %08b", *dat);
+    }
+    fprintf(stderr, "\n");
+
+
     auto pkt = std::make_shared<packetmode::Packet>(data);
     auto packets = myRS.input_and_decode(pkt);
 
     // Valid packets need to be handed to a MSC DG decoder, e.g. mot-manager
 
     for (auto packet : packets) {
-        const auto msc_data_group_header = data.data() + 3*8;
+        const auto msc_data_group_header = packet->data().data() + 3;
         const bool     extension_flag   = getBits_1(msc_data_group_header, 0);
         const bool     crc_flag         = getBits_1(msc_data_group_header, 1);
         const bool     segment_flag     = getBits_1(msc_data_group_header, 2);
         const bool     user_access_flag = getBits_1(msc_data_group_header, 3);
         const uint8_t  data_group_type  = getBits_4(msc_data_group_header, 4);
+        // dg type 0 = "General data", 1 = "CA messages". EN 300 401 5.3.3.1
         const uint8_t  dg_continuity_ix = getBits_4(msc_data_group_header, 8);
         const uint8_t  repetition_index = getBits_4(msc_data_group_header, 12);
 
         if (data_group_type != 0) {
             std::clog << "Packet " << data.size()/8 <<
-                " addr=" << (int)address <<
+                " addr=" << (int)packet->address() <<
                 " MSC cont ix=" << (int)dg_continuity_ix <<
                 " repet ix=" << (int)repetition_index <<
                 " has DGtype=" << int(data_group_type) << std::endl;
@@ -270,7 +281,7 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
 
         if (extension_flag) {
             std::clog << "Packet " << data.size()/8 <<
-                " addr=" << (int)address <<
+                " addr=" << (int)packet->address() <<
                 " MSC cont ix=" << (int)dg_continuity_ix <<
                 " repet ix=" << (int)repetition_index <<
                 " has extension" << std::endl;
@@ -279,7 +290,7 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
 
         if (!crc_flag) {
             std::clog << "Packet " << data.size()/8 <<
-                " addr=" << (int)address <<
+                " addr=" << (int)packet->address() <<
                 " MSC cont ix=" << (int)dg_continuity_ix <<
                 " repet ix=" << (int)repetition_index <<
                 " has no msc crc" << std::endl;
@@ -287,10 +298,10 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
         }
 
         std::clog << "Packet " << data.size()/8 <<
-            " addr=" << (int)address <<
+            " addr=" << (int)packet->address() <<
             " MSC cont ix=" << (int)dg_continuity_ix <<
             " repet ix=" << (int)repetition_index <<
-            std::endl;
+            " GOOD " << std::endl;
 
         std::stringstream ss;
         ss << std::hex;

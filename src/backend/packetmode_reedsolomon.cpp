@@ -115,7 +115,11 @@ bool Packetmode_ReedSolomon::pkts_process_fec()
     size_t  pktbytes=0;
 
 #define FEC_PKT_HDR_LENGTH  2
-#define FEC_PKT_BYTES       22
+#define FEC_PKT_BYTES  22
+    auto fec_pkt_bytes = [](int fec_count) {
+        // EN 300 401 5.3.5.2 "there remain 6 unused bytes" in the 9th FEC packet
+        return (fec_count < 8) ? FEC_PKT_BYTES : FEC_PKT_BYTES-6;
+    };
 
     memset(rstable, 0, rows*(columns+feccolumns));
 
@@ -127,10 +131,15 @@ bool Packetmode_ReedSolomon::pkts_process_fec()
              * FEC packets (should be 9 in our buffer)
              * Must be interleaved into columns from column 239 on
              */
-            int poff=pkt->fec_count()*FEC_PKT_BYTES;
-            for(int i=0;i<FEC_PKT_BYTES;i++)
+            const int poff = pkt->fec_count() * FEC_PKT_BYTES;
+            for (int i=0; i < fec_pkt_bytes(pkt->fec_count()); i++) {
+                /* fprintf(stderr, "rstable[%d][%d = %d + (%d + %d) / %d]\n",
+                    (poff+i) % rows,
+                    columns + (poff+i) / rows,
+                    columns, poff,i, rows); */
                 rstable[(poff+i) % rows][columns + (poff+i) / rows] =
                     pbuf[FEC_PKT_HDR_LENGTH+i];
+            }
 
             fecpkts++;
         }
@@ -237,7 +246,7 @@ std::list<std::shared_ptr<Packet>> Packetmode_ReedSolomon::input_and_decode(
         if (app_size == TOTAL_APPLICATION_BYTES) {
             if (pkts_process_fec()) {
                 // pkts_process_fec will modify the packets in-place
-                for (auto pkt : pkts) {
+                for (const auto& pkt : pkts) {
                     if (! pkt->is_fec()) {
                         out.push_back(pkt);
                     }
@@ -260,3 +269,74 @@ std::list<std::shared_ptr<Packet>> Packetmode_ReedSolomon::input_and_decode(
     return out;
 }
 }
+
+#if PACKETMODE_TEST
+// Test code to validate that the RS decoding works
+#include <fstream>
+#include <sstream>
+#include <bitset>
+int main(int argc, char **argv)
+{
+    std::vector<std::vector<uint8_t>> packets;
+    std::ifstream file("packetmode_reedsolomon.dat");
+    std::string line;
+
+    while (std::getline(file, line)) {
+        std::vector<uint8_t> row;
+        std::istringstream iss(line);
+        std::string binaryStr;
+
+        // Split the line into 24 binary strings
+        for (int i = 0; i < 24; ++i) {
+            size_t pos = line.find(' ');
+            binaryStr = line.substr(0, pos);
+            line.erase(0, pos + 1);
+
+            // Convert binary string to uint8_t
+            uint8_t value = static_cast<uint8_t>(std::bitset<8>(binaryStr).to_ulong());
+            row.push_back(value);
+        }
+        packets.push_back(row);
+    }
+
+    packetmode::Packetmode_ReedSolomon myRS;
+    std::list<std::shared_ptr<packetmode::Packet>> corrected_packets;
+
+    for (const auto& data : packets) {
+        auto packet = std::make_shared<packetmode::Packet>();
+        packet->load_bytes(data);
+        fprintf(stderr, "HEX %d", packet->address());
+        for (auto dat = packet->data().cbegin(); dat != packet->data().cend(); ++dat) {
+            fprintf(stderr, " %08b", *dat);
+        }
+        fprintf(stderr, "\n");
+
+        corrected_packets = myRS.input_and_decode(packet);
+        if (corrected_packets.size())
+            fprintf(stderr, "OUT = %zu\n", corrected_packets.size());
+    }
+
+    if (packets.size() == corrected_packets.size() + 9) {
+        size_t i = 0;
+        for (const auto& corrected_packet : corrected_packets) {
+
+            const auto orig_packet = std::make_shared<packetmode::Packet>();
+            orig_packet->load_bytes(packets.at(i++));
+
+            if (*orig_packet != *corrected_packet) {
+                fprintf(stderr, "%zu ORIG %d",i , orig_packet->address());
+                for (auto dat : orig_packet->data()) {
+                    fprintf(stderr, " %08b", dat);
+                }
+                fprintf(stderr, "\n");
+
+                fprintf(stderr, "%zu CORR %d",i , corrected_packet->address());
+                for (auto dat : corrected_packet->data()) {
+                    fprintf(stderr, " %08b", dat);
+                }
+                fprintf(stderr, "\n");
+            }
+        }
+    }
+}
+#endif

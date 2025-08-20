@@ -516,6 +516,18 @@ if(BUILD_WELLE_IO)
     endif()
 endif()
 
+
+# Uncomment this to compile the PACKETMODE test program
+# set(packetmode_reedsolomon_sources
+#     src/backend/packetmode_reedsolomon.cpp
+#     src/libs/fec/decode_rs_char.c
+#     src/libs/fec/encode_rs_char.c
+#     src/libs/fec/init_rs_char.c )
+#
+# add_executable(packetmode_reedsolomon ${packetmode_reedsolomon_sources})
+# SET_TARGET_PROPERTIES(packetmode_reedsolomon PROPERTIES COMPILE_FLAGS "-DPACKETMODE_TEST=1 -O2 -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
+# SET_TARGET_PROPERTIES(packetmode_reedsolomon PROPERTIES LINK_FLAGS "-fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
+
 if(BUILD_WELLE_CLI AND NOT ANDROID)
     set(cliExecutableName welle-cli)
     add_executable (${cliExecutableName}

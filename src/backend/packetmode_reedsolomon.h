@@ -39,7 +39,9 @@ namespace packetmode {
 
 class Packet {
     public:
-        Packet(const std::vector<uint8_t> &bits)
+        Packet() { }
+
+        Packet(const std::vector<uint8_t>& bits)
         {
             const uint8_t *bitbuffer = bits.data();
 
@@ -54,6 +56,14 @@ class Packet {
             }
         };
 
+        bool operator!=(const Packet& other) { return buffer != other.buffer; }
+
+        void load_bytes(const std::vector<uint8_t>& bytes)
+        {
+            buffer.clear();
+            std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(buffer));
+        };
+
         std::size_t size() const {
             return buffer.size();
         }
@@ -62,8 +72,8 @@ class Packet {
             return buffer;
         }
 
-        int address() const {
-            return (((buffer[0]) & 0x3) << 8 | (buffer[1]));
+        uint16_t address() const {
+            return (((uint16_t)(buffer[0]) & 0x3) << 8 | (uint16_t)(buffer[1]));
         }
 
         /* EN 300 401 - 5.3.5.2 - FEC for MSC packet Mod
@@ -86,6 +96,9 @@ class Packet {
 class Packetmode_ReedSolomon {
     public:
         Packetmode_ReedSolomon();
+        Packetmode_ReedSolomon(const Packetmode_ReedSolomon& other) = delete;
+        Packetmode_ReedSolomon& operator=(const Packetmode_ReedSolomon& other) = delete;
+
         virtual ~Packetmode_ReedSolomon();
 
         std::list<std::shared_ptr<Packet>> input_and_decode(std::shared_ptr<Packet> pkt);
