@@ -29,6 +29,14 @@
 #include "charsets.h"
 #include "tools.h"
 
+enum class MOT_Datatype {
+    HEADER = 3,
+    UNSCRAMBLED_BODY = 4,
+    SCRAMBLED_BODY = 5,
+    UNCOMPRESSED_DIRECTORY = 6,
+    COMPRESSED_DIRECTORY = 7
+};
+
 
 // --- MOT_FILE -----------------------------------------------------------------
 struct MOT_FILE {
@@ -82,9 +90,9 @@ public:
 	}
 
 	void AddSeg(int seg_number, bool last_seg, const uint8_t* data, size_t len);
-	bool IsFinished();
-	size_t GetSize() {return size;}
-	std::vector<uint8_t> GetData();
+	bool IsFinished() const;
+	size_t GetSize() const {return size;}
+	std::vector<uint8_t> GetData() const;
 };
 
 
@@ -102,27 +110,73 @@ private:
 public:
 	MOTObject(): header_received(false), shown(false) {}
 
-	void AddSeg(bool dg_type_header, int seg_number, bool last_seg, const uint8_t* data, size_t len);
+	void AddSeg(MOT_Datatype dg_type, int seg_number, bool last_seg, const uint8_t* data, size_t len);
 	bool IsToBeShown();
-	MOT_FILE GetFile() {return result_file;}
+	MOT_FILE GetFile() const { return result_file;}
+
+	struct Status {
+		bool body_is_finished;
+		size_t body_size;
+	};
+
+	Status GetStatus() const {
+		return {body.IsFinished(), body.GetSize()};
+	}
 };
 
+class MOTDirectory {
+private:
+	MOTEntity directory;
+	std::map<int /* transportId */, MOT_FILE> headers;
+
+	struct ParseResult {
+		MOT_FILE file;
+		size_t bytes_consumed;
+	};
+
+	ParseResult ParseDirectoryEntry(const uint8_t *data, size_t data_len);
+
+public:
+	MOTDirectory() {}
+
+	void AddSeg(MOT_Datatype dg_type, int seg_number, bool last_seg, const uint8_t* data, size_t len);
+
+	struct Status {
+		bool is_finished;
+		size_t size;
+		const std::map<int /* transportId */, MOT_FILE>& headers;
+	};
+
+	Status GetStatus() const {
+		return {directory.IsFinished(), directory.GetSize(), headers};
+	}
+};
 
 // --- MOTManager -----------------------------------------------------------------
 class MOTManager {
 private:
-	MOTObject object;
-	int current_transport_id;
+	// Used in directory mode
+	int directory_transport_id = -1;
+	MOTDirectory directory;
+	std::map<int /*transport_id*/, MOTEntity> directory_entities;
 
-	bool ParseCheckDataGroupHeader(const std::vector<uint8_t>& dg, size_t& offset, int& dg_type);
+	// Used in header mode
+	int object_transport_id = -1;
+	MOTObject object;
+
+	bool directory_mode;
+
+	bool ParseCheckDataGroupHeader(const std::vector<uint8_t>& dg, size_t& offset, MOT_Datatype& dg_type);
 	bool ParseCheckSessionHeader(const std::vector<uint8_t>& dg, size_t& offset, bool& last_seg, int& seg_number, int& transport_id);
 	bool ParseCheckSegmentationHeader(const std::vector<uint8_t>& dg, size_t& offset, size_t& seg_size);
 public:
-	MOTManager();
+	MOTManager(bool directory_mode = false);
 
 	void Reset();
 	bool HandleMOTDataGroup(const std::vector<uint8_t>& dg);
-	MOT_FILE GetFile() {return object.GetFile();}
+	MOT_FILE GetFile() const;
+
+	std::vector<MOT_FILE> GetAllFiles() const;
 };
 
 #endif /* MOT_MANAGER_H_ */

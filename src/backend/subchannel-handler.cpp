@@ -206,8 +206,8 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
     const bool     first            = getBits_1(data.data(), 4);
     const bool     last             = getBits_1(data.data(), 5);
     const uint16_t address          = getBits(data.data(), 6, 10);
-    //const bool     command          = getBits_1(data.data(), 17);
-    const uint8_t  data_length      = getBits_7(data.data(), 18);
+    //const bool     command          = getBits_1(data.data(), 16);
+    const uint8_t  data_length      = getBits_7(data.data(), 17);
 
     // includes the 3 bytes header length
     const uint8_t packet_length =
@@ -247,73 +247,105 @@ void DabPacketData::addtoFrame(const std::vector<uint8_t>& data)
     }
 
     packetmode::Packet packet(data);
+    if (address != 1022) {
+        //fprintf(stderr, "USEFUL_DATA_LEN %d vs %d\n", data_length, packet.useful_data_length());
+    }
+    /*
     fprintf(stderr, "HEX %d", packet.address());
     for (auto dat = packet.data().cbegin(); dat != packet.data().cend(); ++dat) {
         fprintf(stderr, " %08b", *dat);
     }
-    fprintf(stderr, "\n");
+    fprintf(stderr, "\n"); */
 
 
     auto pkt = std::make_shared<packetmode::Packet>(data);
     auto packets = myRS.input_and_decode(pkt);
 
+    for (auto packet : packets) {
+
+        constexpr uint16_t FILTERED_ADDRESS = 1;
+
+        if (packet->address() == FILTERED_ADDRESS) {
+
+            if (dataGroup.empty() && packet->first()) {
+                /*fprintf(stderr, "COPY first (%d) %u of %zu\n",
+                        packet->continuity_index(),
+                        packet->useful_data_length(),
+                        packet->size());*/
+                std::copy(
+                        packet->data().begin() + 3,
+                        packet->data().begin() + 3 + packet->useful_data_length(),
+                        std::back_inserter(dataGroup));
+            }
+            else if (! dataGroup.empty()) {
+                /*fprintf(stderr, "COPY cont  (%d) %u of %zu\n",
+                        packet->continuity_index(),
+                        packet->useful_data_length(),
+                        packet->size());*/
+                std::copy(
+                        packet->data().begin() + 3,
+                        packet->data().begin() + 3 + packet->useful_data_length(),
+                        std::back_inserter(dataGroup));
+            }
+
+            if (packet->last()) {
+                if (!dataGroup.empty()) {
+                    handleDataGroup();
+                    dataGroup.clear();
+                }
+            }
+        }
+    }
+}
+
+void DabPacketData::handleDataGroup()
+{
     // Valid packets need to be handed to a MSC DG decoder, e.g. mot-manager
 
-    for (auto packet : packets) {
-        const auto msc_data_group_header = packet->data().data() + 3;
-        const bool     extension_flag   = getBits_1(msc_data_group_header, 0);
-        const bool     crc_flag         = getBits_1(msc_data_group_header, 1);
-        const bool     segment_flag     = getBits_1(msc_data_group_header, 2);
-        const bool     user_access_flag = getBits_1(msc_data_group_header, 3);
-        const uint8_t  data_group_type  = getBits_4(msc_data_group_header, 4);
-        // dg type 0 = "General data", 1 = "CA messages". EN 300 401 5.3.3.1
-        const uint8_t  dg_continuity_ix = getBits_4(msc_data_group_header, 8);
-        const uint8_t  repetition_index = getBits_4(msc_data_group_header, 12);
+    const bool     extension_flag   = dataGroup.at(0) & 0b10000000;
+    const bool     crc_flag         = dataGroup.at(0) & 0b01000000;
+    const bool     segment_flag     = dataGroup.at(0) & 0b00100000;
+    const bool     user_access_flag = dataGroup.at(0) & 0b00010000;
+    const uint8_t  data_group_type  = dataGroup.at(0) & 0b00001111;
+    // dg type 0 = "General data", 1 = "CA messages". EN 300 401 5.3.3.1
+    const uint8_t  dg_continuity_ix = dataGroup.at(1) >> 4;
+    const uint8_t  repetition_index = dataGroup.at(1) & 0b00001111;
 
-        if (data_group_type != 0) {
-            std::clog << "Packet " << data.size()/8 <<
-                " addr=" << (int)packet->address() <<
-                " MSC cont ix=" << (int)dg_continuity_ix <<
-                " repet ix=" << (int)repetition_index <<
-                " has DGtype=" << int(data_group_type) << std::endl;
-            return;
-        }
+    //fprintf(stderr, "Handle dataGroup with %zu bytes, DGtype %d\n", dataGroup.size(), data_group_type);
 
-        if (extension_flag) {
-            std::clog << "Packet " << data.size()/8 <<
-                " addr=" << (int)packet->address() <<
-                " MSC cont ix=" << (int)dg_continuity_ix <<
-                " repet ix=" << (int)repetition_index <<
-                " has extension" << std::endl;
-            return;
-        }
-
-        if (!crc_flag) {
-            std::clog << "Packet " << data.size()/8 <<
-                " addr=" << (int)packet->address() <<
-                " MSC cont ix=" << (int)dg_continuity_ix <<
-                " repet ix=" << (int)repetition_index <<
-                " has no msc crc" << std::endl;
-            return;
-        }
-
-        std::clog << "Packet " << data.size()/8 <<
-            " addr=" << (int)packet->address() <<
+    if (extension_flag) {
+        std::clog << "DG "
             " MSC cont ix=" << (int)dg_continuity_ix <<
             " repet ix=" << (int)repetition_index <<
-            " GOOD " << std::endl;
-
-        std::stringstream ss;
-        ss << std::hex;
-        for (size_t i = 4; i < data.size(); i++) {
-            if (i % 8 == 0) ss << " ";
-            ss << (int)data[i];
-        }
-        std::clog << ss.str() << std::endl;
+            " has extension" << std::endl;
+        return;
     }
 
-#warning "Do packet parsing and hand over to phi"
-    // TODO myPacketDataHandler.onMSCDataGroup(std::vector<uint8_t>&& mscdg) = 0;
+    if (!crc_flag) {
+        std::clog << "DG "
+            " MSC cont ix=" << (int)dg_continuity_ix <<
+            " repet ix=" << (int)repetition_index <<
+            " has no MSC crc" << std::endl;
+        return;
+    }
+
+    const bool crcvalid = check_crc_bytes(dataGroup.data(), dataGroup.size()-2);
+    if (!crcvalid) {
+        std::clog << "DG "
+            " MSC cont ix=" << (int)dg_continuity_ix <<
+            " repet ix=" << (int)repetition_index <<
+            " has INVALID crc" << std::endl;
+        return;
+    }
+
+    /*
+    std::clog << "DG "
+        " MSC cont ix=" << (int)dg_continuity_ix <<
+        " repet ix=" << (int)repetition_index <<
+        " GOOD " << std::endl;
+        */
+
+    myPacketDataHandler.onMSCDataGroup(std::move(dataGroup));
 }
 
 DabPacketData::~DabPacketData() {}

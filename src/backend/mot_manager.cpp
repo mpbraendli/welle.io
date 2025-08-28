@@ -26,8 +26,9 @@ void MOTEntity::AddSeg(int seg_number, bool last_seg, const uint8_t* data, size_
 	if(last_seg)
 		last_seg_number = seg_number;
 
-	if(segs.find(seg_number) != segs.end())
+	if(segs.find(seg_number) != segs.end()) {
 		return;
+	}
 
 	// copy data
 	segs[seg_number] = seg_t(len);
@@ -35,7 +36,7 @@ void MOTEntity::AddSeg(int seg_number, bool last_seg, const uint8_t* data, size_
 	size += len;
 }
 
-bool MOTEntity::IsFinished() {
+bool MOTEntity::IsFinished() const {
 	if(last_seg_number == -1)
 		return false;
 
@@ -43,16 +44,17 @@ bool MOTEntity::IsFinished() {
 	for(int i = 0; i <= last_seg_number; i++)
 		if(segs.find(i) == segs.end())
 			return false;
+
 	return true;
 }
 
-std::vector<uint8_t> MOTEntity::GetData() {
+std::vector<uint8_t> MOTEntity::GetData() const {
 	std::vector<uint8_t> result(size);
 	size_t offset = 0;
 
 	// concatenate all segments
-	for(int i = 0; i <= last_seg_number; i++) {
-		seg_t& seg = segs[i];
+	for (int i = 0; i <= last_seg_number; i++) {
+		const seg_t& seg = segs.at(i);
 		memcpy(&result[offset], &seg[0], seg.size());
 		offset += seg.size();
 	}
@@ -62,8 +64,19 @@ std::vector<uint8_t> MOTEntity::GetData() {
 
 
 // --- MOTObject -----------------------------------------------------------------
-void MOTObject::AddSeg(bool dg_type_header, int seg_number, bool last_seg, const uint8_t* data, size_t len) {
-	(dg_type_header ? header : body).AddSeg(seg_number, last_seg, data, len);
+void MOTObject::AddSeg(MOT_Datatype dg_type, int seg_number, bool last_seg, const uint8_t* data, size_t len) {
+	switch (dg_type) {
+		case MOT_Datatype::HEADER:
+			header.AddSeg(seg_number, last_seg, data, len);
+			break;
+		case MOT_Datatype::UNSCRAMBLED_BODY:
+			body.AddSeg(seg_number, last_seg, data, len);
+			break;
+		case MOT_Datatype::UNCOMPRESSED_DIRECTORY:
+		case MOT_Datatype::SCRAMBLED_BODY:
+		case MOT_Datatype::COMPRESSED_DIRECTORY:
+			break;
+	}
 }
 
 bool MOTObject::ParseCheckHeader(MOT_FILE& target_file) {
@@ -137,7 +150,7 @@ bool MOTObject::ParseCheckHeader(MOT_FILE& target_file) {
 			break;
 		}
 
-		if(offset + data_len - 1 >= data.size())
+		if (offset + data_len - 1 >= data.size())
 			return false;
 
 		// process parameter
@@ -217,18 +230,197 @@ bool MOTObject::IsToBeShown() {
 	return true;
 }
 
+// --- MOTDirectory -----------------------------------------------------------------
+void MOTDirectory::AddSeg(MOT_Datatype dg_type, int seg_number, bool last_seg, const uint8_t* data, size_t len) {
+	switch (dg_type) {
+		case MOT_Datatype::UNCOMPRESSED_DIRECTORY:
+			directory.AddSeg(seg_number, last_seg, data, len);
+			break;
+		case MOT_Datatype::UNSCRAMBLED_BODY:
+		case MOT_Datatype::HEADER:
+		case MOT_Datatype::SCRAMBLED_BODY:
+		case MOT_Datatype::COMPRESSED_DIRECTORY:
+			break;
+	}
+
+	if (directory.IsFinished() && headers.empty()) {
+		std::vector<uint8_t> data = directory.GetData();
+		if(data.size() < 7)
+			return;
+
+		// EN 301 234 Figure 30
+		const uint32_t directory_size =
+			((uint32_t)(data[0] & 0x7F) << 24) |
+			((uint32_t)(data[1]) << 16) |
+			((uint32_t)(data[2]) << 8) |
+			((uint32_t)(data[3]));
+
+		const uint16_t num_objects =
+			((uint16_t)(data[4]) << 8) |
+			((uint16_t)(data[5]));
+
+		// 24bits of data carousel period
+		// 1 bit rfu
+		// 2 bit rfa
+		// 13 bits segment size
+
+		const uint16_t extension_length_bytes =
+			((uint16_t)(data[11]) << 8) |
+			((uint16_t)(data[12]));
+
+		/*
+		std::cerr << "MOT Directory " <<
+			"size=" << directory_size << " " <<
+			"n=" << num_objects << " " <<
+			"extlen=" << extension_length_bytes << "\n"; */
+
+		size_t data_ix = 13 + extension_length_bytes;
+
+		// Followed by num_objects directory entries
+		for (size_t dir_ix = 0; dir_ix < num_objects; dir_ix++) {
+			const uint16_t transport_id =
+				((uint16_t)(data[data_ix]) << 8) |
+				((uint16_t)(data[data_ix+1]));
+
+			/*
+			std::cerr << " Directory " << dir_ix <<
+				" tid=" << transport_id <<
+				" at " << data_ix << "\n"; */
+
+			data_ix += 2;
+
+			size_t rem = data.size() - data_ix;
+
+			try {
+				auto result = ParseDirectoryEntry(data.data() + data_ix, rem);
+				data_ix += result.bytes_consumed;
+				headers[transport_id] = result.file;
+			}
+			catch (const std::out_of_range& ex) {
+				std::cerr << "OUT OF RANGE " <<  ex.what() << "\n";
+				break;
+			}
+		}
+
+		/*
+		std::cerr << "Parsed MOT Directory (" << headers.size() << "):\n";
+		for (const auto& entry : headers) {
+			std::cerr << "  " << entry.first << ": " << entry.second.content_name << "\n";
+		} */
+	}
+}
+
+MOTDirectory::ParseResult MOTDirectory::ParseDirectoryEntry(const uint8_t *data, size_t data_len) {
+	MOT_FILE file;
+
+	// parse/check header core
+	if (data_len < 7)
+		throw std::out_of_range("data_len < 7");
+
+	size_t body_size = (data[0] << 20) | (data[1] << 12) | (data[2] << 4) | (data[3] >> 4);
+	size_t header_size = ((data[3] & 0x0F) << 9) | (data[4] << 1) | (data[5] >> 7);
+	int content_type = (data[5] & 0x7F) >> 1;
+	int content_sub_type = ((data[5] & 0x01) << 8) | data[6];
+
+	fprintf(stderr, "body_size: %5zu, header_size: %3zu, content_type: 0x%02X, content_sub_type: 0x%03X\n", body_size, header_size, content_type, content_sub_type);
+
+	// store core info
+	file.body_size = body_size;
+	file.content_type = content_type;
+	file.content_sub_type = content_sub_type;
+
+    // parse/check header extension
+	size_t offset = 7;
+
+	while (offset < header_size) {
+		int pli = data[offset] >> 6;
+		int param_id = data[offset] & 0x3F;
+		offset++;
+
+		// get parameter len
+		size_t param_len;
+		switch(pli) {
+			case 0:
+				param_len = 0;
+				break;
+			case 1:
+				param_len = 1;
+				break;
+			case 2:
+				param_len = 4;
+				break;
+			case 3:
+				if (offset >= data_len)
+					throw std::out_of_range("data_len for param 3");
+				bool ext = data[offset] & 0x80;
+				param_len = data[offset] & 0x7F;
+				offset++;
+
+				if(ext) {
+					if(offset >= data_len)
+						throw std::out_of_range("data_len for param 0b11 ext");
+					param_len = (param_len << 8) + data[offset];
+					offset++;
+				}
+				break;
+		}
+
+		if(offset + param_len - 1 >= data_len)
+			throw std::out_of_range("data_len param value");
+
+		// process parameter
+		switch(param_id) {
+        case 0x04:	// ExpireTime
+            file.expire_time = data[offset]; // TODO not tested
+            break;
+		case 0x05:	// TriggerTime
+			if(param_len < 4)
+				throw std::out_of_range("param_len param triggertime");
+			// TODO: not only distinguish between Now or not
+			file.trigger_time_now = !(data[offset] & 0x80);
+//			fprintf(stderr, "TriggerTime: %s\n", file.trigger_time_now ? "Now" : "(not Now)");
+			break;
+		case 0x0C:	// ContentName
+			if(param_len == 0)
+				throw std::out_of_range("param_len param contentname");
+			//file.content_name = CharsetTools::ConvertTextToUTF8(&data[offset + 1], param_len - 1, data[offset] >> 4, true, &file.content_name_charset);
+            file.content_name = toUtf8StringUsingCharset ( (const char *)&data[offset + 1], (CharacterSet) (data[offset] >> 4), param_len - 1);
+//			fprintf(stderr, "ContentName: '%s'\n", file.content_name.c_str());
+			break;
+        case 0x25:  // Category/SlideID
+            file.category = data[offset];
+            file.slide_id = data[offset+1];
+            break;
+		case 0x26:	// CategoryTitle
+            file.category_title = std::string((char*) &data[offset], param_len);	// already UTF-8
+			break;
+		case 0x27:	// ClickThroughURL
+			file.click_through_url = std::string((char*) &data[offset], param_len);	// already UTF-8
+//			fprintf(stderr, "ClickThroughURL: '%s'\n", file.click_through_url.c_str());
+			break;
+		}
+		offset += param_len;
+	}
+
+	return {file, offset};
+}
 
 // --- MOTManager -----------------------------------------------------------------
-MOTManager::MOTManager() {
+MOTManager::MOTManager(bool directory_mode) :
+	directory_mode(directory_mode) {
 	Reset();
 }
 
 void MOTManager::Reset() {
+	directory_transport_id = -1;
+	directory = MOTDirectory();
+	directory_entities.clear();
+
+	object_transport_id = -1;
 	object = MOTObject();
-	current_transport_id = -1;
 }
 
-bool MOTManager::ParseCheckDataGroupHeader(const std::vector<uint8_t>& dg, size_t& offset, int& dg_type) {
+bool MOTManager::ParseCheckDataGroupHeader(const std::vector<uint8_t>& dg, size_t& offset, MOT_Datatype& dg_type) {
 	// parse/check Data Group header
 	if(dg.size() < (offset + 2))
 		return false;
@@ -237,7 +429,7 @@ bool MOTManager::ParseCheckDataGroupHeader(const std::vector<uint8_t>& dg, size_
 	bool crc_flag = dg[offset] & 0x40;
 	bool segment_flag = dg[offset] & 0x20;
 	bool user_access_flag = dg[offset] & 0x10;
-	dg_type = dg[offset] & 0x0F;
+	dg_type = static_cast<MOT_Datatype>(dg[offset] & 0x0F);
 	offset += 2 + (extension_flag ? 2 : 0);
 
 	if(!crc_flag)
@@ -245,8 +437,6 @@ bool MOTManager::ParseCheckDataGroupHeader(const std::vector<uint8_t>& dg, size_
 	if(!segment_flag)
 		return false;
 	if(!user_access_flag)
-		return false;
-	if(dg_type != 3 && dg_type != 4)	// only accept MOT header/body
 		return false;
 
 	return true;
@@ -297,7 +487,7 @@ bool MOTManager::HandleMOTDataGroup(const std::vector<uint8_t>& dg) {
 	size_t offset = 0;
 
 	// parse/check headers
-	int dg_type;
+	MOT_Datatype dg_type;
 	bool last_seg;
 	int seg_number;
 	int transport_id;
@@ -310,19 +500,80 @@ bool MOTManager::HandleMOTDataGroup(const std::vector<uint8_t>& dg) {
 	if(!ParseCheckSegmentationHeader(dg, offset, seg_size))
 		return false;
 
+	if (directory_mode) {
+		if (directory_transport_id != transport_id) {
+			directory = MOTDirectory();
+			directory_transport_id = transport_id;
+		}
 
-	// add segment to MOT object (reset if necessary)
-	if(current_transport_id != transport_id) {
-		current_transport_id = transport_id;
-		object = MOTObject();
+		if (dg_type == MOT_Datatype::UNCOMPRESSED_DIRECTORY) {
+			directory.AddSeg(dg_type, seg_number, last_seg, &dg[offset], seg_size);
+		}
+		else if (dg_type == MOT_Datatype::UNSCRAMBLED_BODY) {
+			auto& entity = directory_entities[transport_id];
+			entity.AddSeg(seg_number, last_seg, &dg[offset], seg_size);
+		}
+		else {
+			return false;
+		}
+		return true;
 	}
-	object.AddSeg(dg_type == 3, seg_number, last_seg, &dg[offset], seg_size);
+	else {
+		if (dg_type != MOT_Datatype::HEADER && dg_type != MOT_Datatype::UNSCRAMBLED_BODY) {
+			return false;
+		}
 
-	// check if object shall be shown
-	bool display = object.IsToBeShown();
-//	fprintf(stderr, "dg_type: %d, seg_number: %2d%s, transport_id: %5d, size: %4zu; display: %s\n",
-//			dg_type, seg_number, last_seg ? " (LAST)" : "", transport_id, seg_size, display ? "true" : "false");
+		if (object_transport_id != transport_id) {
+			object_transport_id = transport_id;
+			object = MOTObject();
+		}
 
-	// if object shall be shown, update it
-	return display;
+		object.AddSeg(dg_type, seg_number, last_seg, &dg[offset], seg_size);
+
+		// check if object shall be shown
+		bool display = object.IsToBeShown();
+		//	fprintf(stderr, "dg_type: %d, seg_number: %2d%s, transport_id: %5d, size: %4zu; display: %s\n",
+		//			dg_type, seg_number, last_seg ? " (LAST)" : "", transport_id, seg_size, display ? "true" : "false");
+
+		// if object shall be shown, update it
+		return display;
+	}
 }
+
+MOT_FILE MOTManager::GetFile() const {
+	if (directory_mode) {
+		throw new std::logic_error("Don't use GetFile in MOT directory mode");
+	}
+	return object.GetFile();
+}
+
+std::vector<MOT_FILE> MOTManager::GetAllFiles() const {
+	const auto status = directory.GetStatus();
+	if (status.is_finished)
+	{
+		std::vector<MOT_FILE> files;
+		for (const auto& item : status.headers) {
+			const auto transport_id = item.first;
+
+			const auto obj_it = directory_entities.find(transport_id);
+			if (obj_it == directory_entities.end()) {
+				std::cerr << "MOTManager::GetAllFiles(): Body of " << transport_id << "missing\n";
+				return {};
+			}
+
+			auto body = obj_it->second.GetData();
+
+			std::cerr << "MOTManager::GetAllFiles(): Body of " << transport_id <<
+				" size=" << body.size() << "\n";
+
+			MOT_FILE file = item.second;
+			file.data = std::move(body);
+			files.emplace_back(std::move(file));
+		}
+
+		return files;
+	}
+
+	return {};
+}
+

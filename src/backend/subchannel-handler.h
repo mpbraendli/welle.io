@@ -107,7 +107,11 @@ class DabPacketData : public SubchannelHandler {
         virtual void addtoFrame(const std::vector<uint8_t>& data);
 
     private:
+        void handleDataGroup();
+
         packetmode::Packetmode_ReedSolomon myRS;
         std::unique_ptr<DabProcessor> myProcessor;
         PacketDataHandlerInterface& myPacketDataHandler;
+
+        std::vector<uint8_t> dataGroup;
 };

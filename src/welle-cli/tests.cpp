@@ -32,6 +32,7 @@
 
 #include "tests.h"
 #include "backend/radio-receiver.h"
+#include "mot_manager.h"
 #include "raw_file.h"
 #include "various/profiling.h"
 #include <algorithm>
@@ -122,6 +123,7 @@ class TestRadioInterface : public RadioControllerInterface {
         struct FILEDeleter{ void operator()(FILE* fd){ if (fd) fclose(fd); }};
         std::unique_ptr<FILE, FILEDeleter> cirFile;
         bool first_sync_time_set = false;
+        std::string ensembleLabel = "";
 
     public:
         void openCIRdumpfile(const std::string& fname)
@@ -158,7 +160,10 @@ class TestRadioInterface : public RadioControllerInterface {
 
         virtual void onSetEnsembleLabel(DabLabel& label) override
         {
-            cout << "Ensemble label: " << label.utf8_label() << endl;
+            if (ensembleLabel != label.utf8_label()) {
+                ensembleLabel = label.utf8_label();
+                cout << "Ensemble label: " << label.utf8_label() << endl;
+            }
         }
 
         virtual void onDateTimeUpdate(const dab_date_time_t& dateTime) override { (void)dateTime; }
@@ -240,11 +245,39 @@ class TestProgrammeHandler: public ProgrammeHandlerInterface {
 
 
 class TestPacketDataHandler : public PacketDataHandlerInterface {
+    private:
+        ssize_t last_num_files = -1;
+        MOTManager mot_manager;
+
     public:
+        TestPacketDataHandler() : mot_manager(true) { }
+
         /* New MSC Data Group is available. The content of the data group depends on the DSCTy of
          * the tuned service. */
         virtual void onMSCDataGroup(std::vector<uint8_t>&& mscdg) override {
-            cout << "MSCDataGroup: " << mscdg.size() << endl;
+            mot_manager.HandleMOTDataGroup(mscdg);
+
+            auto files = mot_manager.GetAllFiles();
+            if (files.size() != last_num_files) {
+                last_num_files = files.size();
+
+                for (const auto& f : files) {
+                    if (f.body_size == f.data.size()) {
+                        cerr << " '" << f.content_name << "' " <<
+                            " " << f.body_size << "\n";
+
+                        string fname = "spi/" + f.content_name;
+                        if (FILE *fd = fopen(fname.c_str(), "w")) {
+                            fwrite(f.data.data(), 1, f.data.size(), fd);
+                            fclose(fd);
+                        }
+                    }
+                    else {
+                        cerr << " '" << f.content_name << "' " <<
+                            " " << f.body_size << " WRONG SIZE" << f.data.size() << "\n";
+                    }
+                }
+            }
         }
 };
 
@@ -395,9 +428,8 @@ void Tests::test_packet_data()
     while (not service_selected) {
         this_thread::sleep_for(chrono::seconds(1));
 
-        for (const auto s : rx.getServiceList()) {
-
-            for (const auto sc : rx.getComponents(s)) {
+        for (const auto& s : rx.getServiceList()) {
+            for (const auto& sc : rx.getComponents(s)) {
                 if (sc.transportMode() == TransportMode::PacketData) {
                     service_selected = rx.addPacketServiceToDecode(tpdh, dumpFileName, s);
                     break;

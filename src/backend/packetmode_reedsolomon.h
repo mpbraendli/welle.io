@@ -32,6 +32,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <stdexcept>
 #include <memory>
 #include <list>
 
@@ -44,6 +45,10 @@ class Packet {
         Packet(const std::vector<uint8_t>& bits)
         {
             const uint8_t *bitbuffer = bits.data();
+
+            if (bits.size() % 8 != 0) {
+                throw std::runtime_error("Packet not multiple of 8 bits");
+            }
 
             buffer.resize(bits.size() / 8);
 
@@ -73,7 +78,7 @@ class Packet {
         }
 
         uint16_t address() const {
-            return (((uint16_t)(buffer[0]) & 0x3) << 8 | (uint16_t)(buffer[1]));
+            return (((uint16_t)(buffer.at(0)) & 0x3) << 8 | (uint16_t)(buffer.at(1)));
         }
 
         /* EN 300 401 - 5.3.5.2 - FEC for MSC packet Mod
@@ -86,8 +91,24 @@ class Packet {
         /* EN 300 401 - 5.3.5.2 - Packet header Counter b13 .. b10
          */
         short fec_count() const {
-            return ((buffer[0] >> 2) & 0xf);
+            return ((buffer.at(0) >> 2) & 0xf);
         };
+
+        bool first() const {
+            return buffer.at(0) & 0b00001000;
+        }
+
+        bool last() const {
+            return buffer.at(0) & 0b00000100;
+        }
+
+        uint8_t continuity_index() const {
+            return (buffer.at(0) & 0b00110000) >> 4;
+        }
+
+        uint16_t useful_data_length() const {
+            return buffer.at(2) & 0x7F;
+        }
 
     private:
         std::vector<uint8_t> buffer;

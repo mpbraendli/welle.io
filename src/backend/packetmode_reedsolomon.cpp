@@ -160,9 +160,11 @@ bool Packetmode_ReedSolomon::pkts_process_fec()
         }
     }
 
+    /*
     std::cerr << "FEC pkts " << pkts.size()
         << " bytes " << pktbytes
         << " FEC packets " << fecpkts << std::endl;
+        */
 
     if (pktbytes != TOTAL_APPLICATION_BYTES) {
         std::cerr << "Unable to run FEC - did not receive all packets" << std::endl;
@@ -275,6 +277,7 @@ std::list<std::shared_ptr<Packet>> Packetmode_ReedSolomon::input_and_decode(
 #include <fstream>
 #include <sstream>
 #include <bitset>
+#include "MathHelper.h"
 int main(int argc, char **argv)
 {
     std::vector<std::vector<uint8_t>> packets;
@@ -339,4 +342,5 @@ int main(int argc, char **argv)
         }
     }
 }
+
 #endif
