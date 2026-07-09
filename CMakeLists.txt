@@ -26,6 +26,7 @@ option(RTLSDR            "Compile with RTL-SDR support"          OFF )
 option(SOAPYSDR          "Compile with SoapySDR support"         OFF )
 option(FLAC              "Compile with flac support for streaming" OFF )
 option(FDK_AAC           "Use FDK-AAC instead of FAAD"           OFF )
+option(ALSA              "Compile welle-cli with ALSA playback support" ON  )
 
 add_definitions(-Wall)
 add_definitions(-g)
@@ -69,9 +70,13 @@ if(PROFILING)
     add_definitions(-DWITH_PROFILING)
 endif()
 
-find_package(ALSA)
-if(ALSA_FOUND)
-    add_definitions(-DHAVE_ALSA)
+set(WELLE_ALSA_ENABLED OFF)
+if(ALSA)
+    find_package(ALSA)
+    if(ALSA_FOUND)
+        set(WELLE_ALSA_ENABLED ON)
+        add_definitions(-DHAVE_ALSA)
+    endif()
 endif()
 
 
@@ -301,12 +306,15 @@ endif()
 
 set(welle_cli_sources
     src/welle-cli/welle-cli.cpp
-    src/welle-cli/alsa-output.cpp
     src/welle-cli/webradiointerface.cpp
     src/welle-cli/jsonconvert.cpp
     src/welle-cli/webprogrammehandler.cpp
     src/welle-cli/tests.cpp
 )
+
+if(WELLE_ALSA_ENABLED)
+    list(APPEND welle_cli_sources src/welle-cli/alsa-output.cpp)
+endif()
 
 set(input_sources
     src/input/input_factory.cpp
@@ -530,11 +538,14 @@ if(BUILD_WELLE_CLI AND NOT ANDROID)
 
     target_link_libraries (${cliExecutableName}
       welle
-      ${ALSA_LIBRARIES}
       ${LAME_LIBRARIES}
       ${FLACPP_LIBRARIES}
       Threads::Threads
     )
+
+    if(WELLE_ALSA_ENABLED)
+        target_link_libraries (${cliExecutableName} ${ALSA_LIBRARIES})
+    endif()
 
     find_program(RESOURCE_COMPILER xxd)
     add_custom_command(

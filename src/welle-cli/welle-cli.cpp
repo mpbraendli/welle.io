@@ -48,6 +48,8 @@
 #include "rtl_tcp.h"
 #if defined(HAVE_ALSA)
 #  include "welle-cli/alsa-output.h"
+#else
+#  define PCM_DEVICE ""
 #endif
 #include "welle-cli/webradiointerface.h"
 #include "welle-cli/tests.h"
@@ -592,7 +594,9 @@ int main(int argc, char **argv)
     auto freq = channels.getFrequency(options.channel);
     in->setFrequency(freq);
     string service_to_tune = options.programme;
+#if defined(HAVE_ALSA)
     unsigned service_to_tune_idx = parse_service_to_tune(service_to_tune);
+#endif
 
     if (not options.tests.empty()) {
         Tests tests(in, options.rro);
@@ -754,7 +758,7 @@ int main(int argc, char **argv)
                 cerr << "**** Trying to tune to " << service_to_tune << endl;
             }
 #else
-            cerr << "Nothing to do, not ALSA support." << endl;
+            cerr << "Nothing to do, ALSA playback support is not compiled in." << endl;
 #endif // defined(HAVE_ALSA)
         }
     }
